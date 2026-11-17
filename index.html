@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>我的云空间</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --card:#ffffff; --line:#e5e9f0; --text:#1f2733;
+    --muted:#8a94a6; --primary:#2f6bff; --primary-d:#2557d8;
+    --danger:#e5484d; --ok:#16a34a; --shadow:0 6px 24px rgba(31,39,51,.08);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+  button{font-family:inherit;cursor:pointer}
+  a{color:var(--primary);text-decoration:none}
+
+  /* ---------- 登录/设置 ---------- */
+  #setupView{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .auth-card{background:var(--card);border-radius:18px;box-shadow:var(--shadow);width:100%;max-width:460px;padding:36px}
+  .auth-card .logo{font-size:30px;text-align:center}
+  .auth-card h1{text-align:center;font-size:22px;margin:8px 0 4px}
+  .auth-card .sub{text-align:center;color:var(--muted);font-size:13px;margin-bottom:26px}
+  .field{margin-bottom:16px}
+  .field label{display:block;font-size:13px;margin-bottom:6px;font-weight:600}
+  .field input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:10px;font-size:14px;outline:none;transition:.15s}
+  .field input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(47,107,255,.12)}
+  .hint{font-size:12px;color:var(--muted);margin-top:5px}
+  .btn{border:none;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:600;transition:.15s}
+  .btn-primary{background:var(--primary);color:#fff;width:100%}
+  .btn-primary:hover{background:var(--primary-d)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .err{color:var(--danger);font-size:13px;margin-top:12px;min-height:20px}
+
+  /* ---------- 主应用 ---------- */
+  #appView{min-height:100vh}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 22px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10}
+  header .logo{font-size:22px}
+  header h1{font-size:18px;margin:0;flex:1}
+  header .user{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px}
+  .icon-btn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 11px;font-size:13px;color:var(--text)}
+  .icon-btn:hover{border-color:var(--primary);color:var(--primary)}
+
+  .wrap{max-width:960px;margin:0 auto;padding:22px}
+  .tabs{display:flex;gap:8px;margin-bottom:18px}
+  .tab{padding:9px 18px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:14px;font-weight:600;color:var(--muted)}
+  .tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .toolbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar .btn-primary{width:auto}
+  .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 14px;font-size:14px;font-weight:600}
+  .btn-ghost:hover{border-color:var(--primary);color:var(--primary)}
+  .search{flex:1;min-width:180px;padding:10px 13px;border:1px solid var(--line);border-radius:10px;font-size:14px;outline:none}
+  .search:focus{border-color:var(--primary)}
+
+  .list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 2px 10px rgba(31,39,51,.04);transition:.15s;position:relative}
+  .card:hover{box-shadow:var(--shadow);transform:translateY(-2px)}
+  .card .card-title{font-size:15px;font-weight:700;margin:0 0 6px;word-break:break-word;padding-right:56px}
+  .card .preview{color:var(--muted);font-size:13px;height:42px;overflow:hidden;word-break:break-word}
+  .card .meta{font-size:12px;color:var(--muted);margin-top:12px;display:flex;align-items:center;gap:6px}
+  .card .ops{position:absolute;top:14px;right:14px;display:flex;gap:6px}
+  .mini{border:none;background:#f0f3f9;border-radius:7px;padding:5px 9px;font-size:12px;color:var(--text)}
+  .mini:hover{background:#e2e8f3}
+  .mini.del:hover{background:#fdecec;color:var(--danger)}
+  .file-icon{font-size:22px;margin-right:8px}
+  .empty{text-align:center;color:var(--muted);padding:70px 20px;font-size:14px}
+  .empty .big{font-size:44px;display:block;margin-bottom:10px}
+
+  /* ---------- 模态框 ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(20,28,40,.45);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .modal{background:#fff;border-radius:16px;width:100%;max-width:720px;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  .modal.small{max-width:420px}
+  .modal-head{padding:18px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .modal-head h2{font-size:17px;margin:0}
+  .modal-body{padding:22px}
+  .modal-foot{padding:16px 22px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px}
+  .modal-foot .btn-primary,.modal-foot .btn-ghost{width:auto}
+  .title-input{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:16px;font-weight:700;outline:none;margin-bottom:12px}
+  .title-input:focus{border-color:var(--primary)}
+  .editor{width:100%;min-height:46vh;padding:14px;border:1px solid var(--line);border-radius:10px;font-size:14px;font-family:ui-monospace,Menlo,Consolas,monospace;line-height:1.7;outline:none;resize:vertical}
+  .editor:focus{border-color:var(--primary)}
+  .close-x{border:none;background:none;font-size:22px;color:var(--muted);line-height:1}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:34px;text-align:center;color:var(--muted);cursor:pointer;transition:.15s}
+  .drop:hover,.drop.over{border-color:var(--primary);background:rgba(47,107,255,.05);color:var(--primary)}
+  .progress{height:6px;background:#eef1f6;border-radius:6px;overflow:hidden;margin-top:12px;display:none}
+  .progress i{display:block;height:100%;background:var(--primary);width:0;transition:width .2s}
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);background:#1f2733;color:#fff;padding:11px 20px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:99;box-shadow:var(--shadow)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.err{background:var(--danger)}
+  [hidden]{display:none!important}
+  code{background:#f0f3f9;padding:1px 5px;border-radius:5px;font-size:12px}
+  .note{background:#fff8e6;border:1px solid #ffe4a3;color:#8a6d1f;border-radius:10px;padding:12px 14px;font-size:12px;margin-top:14px}
+</style>
+</head>
+<body>
+
+<!-- ============ 设置 / 登录 ============ -->
+<div id="setupView">
+  <div class="auth-card">
+    <div class="logo">🗂️</div>
+    <h1>我的云空间</h1>
+    <div class="sub">自己的笔记与文件仓库 · 多设备同步</div>
+
+    <div class="field">
+      <label>GitHub 用户名</label>
+      <input id="inOwner" placeholder="例如 xiaochun" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>仓库名</label>
+      <input id="inRepo" placeholder="例如 my-space" autocomplete="off">
+    </div>
+    <div class="field">
+      <label>访问令牌 Token</label>
+      <input id="inToken" type="password" placeholder="粘贴你生成的 token" autocomplete="off">
+      <div class="hint">令牌只保存在本机浏览器，不会上传到任何地方。</div>
+    </div>
+
+    <button class="btn btn-primary" id="btnConnect">连接并进入</button>
+    <div class="err" id="setupErr"></div>
+    <div class="note" id="setupNote">
+      首次使用：先在 GitHub 建一个<b>私有仓库</b>，再生成令牌（Fine-grained token，勾选该仓库的 Contents 读写权限）。详细步骤见随附的《使用说明》。
+    </div>
+  </div>
+</div>
+
+<!-- ============ 主应用 ============ -->
+<div id="appView" hidden>
+  <header>
+    <div class="logo">🗂️</div>
+    <h1>我的云空间</h1>
+    <div class="user"><span class="avatar" id="avatar">U</span><span id="uname">--</span></div>
+    <button class="icon-btn" id="btnSettings">设置</button>
+    <button class="icon-btn" id="btnLogout">退出</button>
+  </header>
+
+  <div class="wrap">
+    <div class="tabs">
+      <button class="tab active" data-tab="notes">📝 笔记</button>
+      <button class="tab" data-tab="files">📁 文件</button>
+    </div>
+
+    <!-- 笔记 -->
+    <section id="notesPanel">
+      <div class="toolbar">
+        <button class="btn btn-primary" id="btnNewNote">＋ 新建笔记</button>
+        <input class="search" id="noteSearch" placeholder="搜索笔记标题或内容…">
+      </div>
+      <div class="list" id="noteList"></div>
+    </section>
+
+    <!-- 文件 -->
+    <section id="filesPanel" hidden>
+      <div class="toolbar">
+        <button class="btn btn-primary" id="btnUpload">⬆ 上传文件</button>
+        <input type="file" id="fileInput" hidden multiple>
+        <input class="search" id="fileSearch" placeholder="搜索文件名…">
+      </div>
+      <div class="list" id="fileList"></div>
+    </section>
+  </div>
+</div>
+
+<!-- 编辑笔记 -->
+<div class="overlay" id="noteModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="noteModalTitle">编辑笔记</h2>
+      <button class="close-x" data-close="noteModal">×</button>
+    </div>
+    <div class="modal-body">
+      <input class="title-input" id="noteTitle" placeholder="笔记标题">
+      <textarea class="editor" id="noteBody" placeholder="在这里记录内容，支持 Markdown 语法…"></textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close="noteModal">取消</button>
+      <button class="btn btn-primary" id="btnSaveNote" style="width:auto">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div class="overlay" id="settingsModal" hidden>
+  <div class="modal small">
+    <div class="modal-head">
+      <h2>连接设置</h2>
+      <button class="close-x" data-close="settingsModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><label>GitHub 用户名</label><input id="setOwner"></div>
+      <div class="field"><label>仓库名</label><input id="setRepo"></div>
+      <div class="field"><label>访问令牌 Token</label><input id="setToken" type="password"><div class="hint">留空表示沿用当前令牌。</div></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close="settingsModal">取消</button>
+      <button class="btn btn-primary" id="btnSaveSettings" style="width:auto">保存并重连</button>
+    </div>
+  </div>
+</div>
+
+<!-- 确认框 -->
+<div class="overlay" id="confirmModal" hidden>
+  <div class="modal small">
+    <div class="modal-head"><h2 id="confirmTitle">确认</h2><button class="close-x" data-close="confirmModal">×</button></div>
+    <div class="modal-body" id="confirmBody" style="font-size:14px"></div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" data-close="confirmModal">取消</button>
+      <button class="btn btn-primary" id="btnConfirmYes" style="width:auto;background:var(--danger)">删除</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= 状态 ================= */
+const LS_KEY = 'my_space_cfg_v1';
+let cfg = { owner:'', repo:'', token:'', branch:'main' };   // branch 自动检测
+let currentUser = '';
+let notes = [];   // {name, path, sha, title, body}
+let files = [];   // {name, path, sha, size, type, download_url}
+let editing = null; // 正在编辑的笔记
+let confirmAction = null;
+
+const $ = id => document.getElementById(id);
+
+/* ================= 工具 ================= */
+function toast(msg, isErr){
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(t._t);
+  t._t = setTimeout(()=> t.className='toast', 2600);
+}
+function utf8ToBase64(str){
+  const bytes = new TextEncoder().encode(str);
+  let bin=''; const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i,i+chunk));
+  return btoa(bin);
+}
+function base64ToUtf8(b64){
+  const bin = atob(b64.replace(/\n/g,''));
+  const bytes = Uint8Array.from(bin, c=>c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+function base64ToBlob(b64, mime){
+  const bin = atob(b64.replace(/\n/g,''));
+  const bytes = Uint8Array.from(bin, c=>c.charCodeAt(0));
+  return new Blob([bytes], {type: mime || 'application/octet-stream'});
+}
+function encPath(p){ return p.split('/').map(encodeURIComponent).join('/'); }
+function fmtSize(n){
+  if(n<1024) return n+' B';
+  if(n<1024*1024) return (n/1024).toFixed(1)+' KB';
+  return (n/1024/1024).toFixed(1)+' MB';
+}
+function fmtTime(s){ const d=new Date(s); return isNaN(d)?'' : d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function escapeHtml(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ================= GitHub API ================= */
+async function gh(method, path, body){
+  const url = `https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}/contents/${encPath(path)}`
+            + (method==='GET' ? `?ref=${encodeURIComponent(cfg.branch)}` : '');
+  const opt = {
+    method,
+    headers:{
+      'Authorization': `Bearer ${cfg.token}`,
+      'Accept':'application/vnd.github+json',
+      'X-GitHub-Api-Version':'2022-11-28'
+    }
+  };
+  if(body){ opt.headers['Content-Type']='application/json'; opt.body=JSON.stringify(body); }
+  const res = await fetch(url, opt);
+  let data = null;
+  try{ data = await res.json(); }catch(e){}
+  if(!res.ok){
+    const err = new Error(data && data.message ? data.message : ('请求失败 '+res.status));
+    err.status = res.status; throw err;
+  }
+  return data;
+}
+
+async function detectBranch(){
+  const res = await fetch(`https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}`, {
+    headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json'}
+  });
+  const d = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(d.message || '无法访问仓库，请检查用户名、仓库名和令牌');
+  cfg.branch = d.default_branch || 'main';
+}
+
+function saveCfg(){ localStorage.setItem(LS_KEY, JSON.stringify(cfg)); }
+function loadCfg(){
+  try{ const c = JSON.parse(localStorage.getItem(LS_KEY)||'null'); if(c) cfg = Object.assign(cfg,c); }catch(e){}
+}
+
+/* ================= 连接 ================= */
+async function connect(showErr){
+  $('setupErr').textContent='';
+  const btn=$('btnConnect'); const old=btn.textContent; btn.textContent='连接中…'; btn.disabled=true;
+  try{
+    await detectBranch();
+    // 验证令牌能否读用户信息
+    const r = await fetch('https://api.github.com/user',{headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json'}});
+    const u = await r.json().catch(()=>({}));
+    if(r.ok && u.login) currentUser = u.login; else currentUser = cfg.owner;
+    saveCfg();
+    $('setupView').hidden = true; $('appView').hidden = false;
+    $('uname').textContent = currentUser;
+    $('avatar').textContent = (currentUser[0]||'U').toUpperCase();
+    $('setOwner').value=cfg.owner; $('setRepo').value=cfg.repo; $('setToken').value='';
+    await Promise.all([loadNotes(), loadFiles()]);
+    toast('已连接');
+  }catch(e){
+    if(showErr) $('setupErr').textContent = '连接失败：'+e.message;
+    else toast('连接失败：'+e.message, true);
+    if(e.status===401 || e.status===403) $('setupView').hidden=false;
+  }finally{ btn.textContent=old; btn.disabled=false; }
+}
+
+/* ================= 笔记 ================= */
+async function loadNotes(){
+  const noteList=$('noteList');
+  noteList.innerHTML='<div class="empty">加载中…</div>';
+  try{
+    let items;
+    try{ items = await gh('GET','notes'); }
+    catch(e){ if(e.status===404){ items=[]; } else throw e; }
+    const mds = (items||[]).filter(x=>x.type==='file' && x.name.endsWith('.md'));
+    notes = await Promise.all(mds.map(async x=>{
+      let body='';
+      try{
+        const f = await gh('GET', x.path);
+        body = f.content ? base64ToUtf8(f.content) : '';
+      }catch(e){}
+      return { name:x.name, path:x.path, sha:x.sha, title:x.name.replace(/\.md$/,''), body, time:x._t };
+    }));
+    renderNotes();
+  }catch(e){ noteList.innerHTML='<div class="empty">加载失败：'+escapeHtml(e.message)+'</div>'; }
+}
+
+function renderNotes(){
+  const kw = $('noteSearch').value.trim().toLowerCase();
+  const arr = notes.filter(n=> !kw || n.title.toLowerCase().includes(kw) || n.body.toLowerCase().includes(kw));
+  const box = $('noteList');
+  if(!arr.length){ box.innerHTML='<div class="empty"><span class="big">📝</span>'+(notes.length?'没有匹配的笔记':'还没有笔记，点「新建笔记」开始记录')+'</div>'; return; }
+  box.innerHTML = arr.map(n=>{
+    const preview = n.body.replace(/[#*`>\-]/g,'').replace(/\n+/g,' ').slice(0,90) || '（空）';
+    return `<div class="card" ondblclick="openNote('${encodeURIComponent(n.path)}')">
+      <div class="ops">
+        <button class="mini" onclick="openNote('${encodeURIComponent(n.path)}')">编辑</button>
+        <button class="mini del" onclick="delNote('${encodeURIComponent(n.path)}')">删除</button>
+      </div>
+      <div class="card-title">${escapeHtml(n.title)}</div>
+      <div class="preview">${escapeHtml(preview)}</div>
+      <div class="meta">📝 ${n.body.length} 字 · 存储于 GitHub</div>
+    </div>`;
+  }).join('');
+}
+
+function openNote(pathEnc){
+  const path = decodeURIComponent(pathEnc);
+  editing = notes.find(n=>n.path===path) || null;
+  $('noteModalTitle').textContent = editing ? '编辑笔记' : '新建笔记';
+  $('noteTitle').value = editing ? editing.title : '';
+  $('noteBody').value = editing ? editing.body : '';
+  $('noteModal').hidden = false;
+  setTimeout(()=> $('noteBody').focus(), 50);
+}
+
+async function saveNote(){
+  const title = $('noteTitle').value.trim();
+  const body = $('noteBody').value;
+  if(!title){ toast('请填写标题', true); return; }
+  const safe = title.replace(/[\\/:*?"<>|]/g,'_').slice(0,60);
+  const path = editing ? editing.path : `notes/${Date.now()}-${safe}.md`;
+  const sha = editing ? (await fetchSha(path)) : undefined;
+  const btn=$('btnSaveNote'); btn.disabled=true; btn.textContent='保存中…';
+  try{
+    await gh('PUT', path, { message:(editing?'更新':'新建')+'笔记 '+safe, content:utf8ToBase64(body), branch:cfg.branch, ...(sha?{sha}:{}) });
+    $('noteModal').hidden = true;
+    toast('已保存');
+    await loadNotes();
+  }catch(e){ toast('保存失败：'+e.message, true); }
+  finally{ btn.disabled=false; btn.textContent='保存'; }
+}
+async function fetchSha(path){
+  try{ const f = await gh('GET', path); return f.sha; }catch(e){ return undefined; }
+}
+
+function delNote(pathEnc){
+  const path = decodeURIComponent(pathEnc);
+  const n = notes.find(x=>x.path===path);
+  askConfirm('删除笔记', `确定删除「${escapeHtml(n?n.title:'该笔记')}」吗？删除后不可恢复。`, async()=>{
+    try{ await gh('DELETE', path, { message:'删除笔记', sha:n.sha, branch:cfg.branch }); toast('已删除'); await loadNotes(); }
+    catch(e){ toast('删除失败：'+e.message, true); }
+  });
+}
+
+/* ================= 文件 ================= */
+async function loadFiles(){
+  const box=$('fileList'); box.innerHTML='<div class="empty">加载中…</div>';
+  try{
+    let items;
+    try{ items = await gh('GET','files'); }
+    catch(e){ if(e.status===404){ items=[]; } else throw e; }
+    files = (items||[]).filter(x=>x.type==='file').map(x=>({
+      name:x.name, path:x.path, sha:x.sha, size:x.size||0, download_url:x.download_url
+    }));
+    renderFiles();
+  }catch(e){ box.innerHTML='<div class="empty">加载失败：'+escapeHtml(e.message)+'</div>'; }
+}
+function fileIcon(name){
+  const ext=(name.split('.').pop()||'').toLowerCase();
+  if(['png','jpg','jpeg','gif','webp','bmp'].includes(ext)) return '🖼️';
+  if(['pdf'].includes(ext)) return '📕';
+  if(['doc','docx'].includes(ext)) return '📘';
+  if(['xls','xlsx','csv'].includes(ext)) return '📗';
+  if(['zip','rar','7z'].includes(ext)) return '🗜️';
+  if(['mp3','wav','m4a'].includes(ext)) return '🎵';
+  if(['mp4','mov','avi'].includes(ext)) return '🎬';
+  return '📄';
+}
+function renderFiles(){
+  const kw = $('fileSearch').value.trim().toLowerCase();
+  const arr = files.filter(f=>!kw || f.name.toLowerCase().includes(kw));
+  const box=$('fileList');
+  if(!arr.length){ box.innerHTML='<div class="empty"><span class="big">📁</span>'+(files.length?'没有匹配的文件':'还没有文件，点「上传文件」添加')+'</div>'; return; }
+  box.innerHTML = arr.map(f=>`
+    <div class="card">
+      <div class="ops">
+        <button class="mini" onclick="dlFile('${encodeURIComponent(f.path)}')">下载</button>
+        <button class="mini del" onclick="delFile('${encodeURIComponent(f.path)}')">删除</button>
+      </div>
+      <div class="card-title"><span class="file-icon">${fileIcon(f.name)}</span>${escapeHtml(f.name)}</div>
+      <div class="meta">💾 ${fmtSize(f.size)}</div>
+    </div>`).join('');
+}
+
+async function uploadFiles(fileList){
+  for(const file of fileList){
+    if(file.size > 10*1024*1024){ toast(`「${file.name}」超过 10MB，请压缩后再传`, true); continue; }
+    toast('上传中：'+file.name);
+    try{
+      const b64 = await new Promise((res,rej)=>{
+        const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file);
+      });
+      // 同名则加时间戳
+      let name = file.name.replace(/[\\/]/g,'_');
+      if(files.some(f=>f.name===name)){
+        const dot=name.lastIndexOf('.'); const ts=Date.now();
+        name = dot>0 ? `${name.slice(0,dot)}_${ts}${name.slice(dot)}` : `${name}_${ts}`;
+      }
+      await gh('PUT', 'files/'+name, { message:'上传文件 '+name, content:b64, branch:cfg.branch });
+      toast('已上传：'+name);
+    }catch(e){ toast('上传「'+file.name+'」失败：'+e.message, true); }
+  }
+  await loadFiles();
+}
+
+async function dlFile(pathEnc){
+  const path=decodeURIComponent(pathEnc);
+  const f=files.find(x=>x.path===path); if(!f) return;
+  toast('下载中…');
+  try{
+    const d = await gh('GET', path);
+    const blob = base64ToBlob(d.content, d.type || 'application/octet-stream');
+    const url = URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=f.name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 3000);
+  }catch(e){ toast('下载失败：'+e.message, true); }
+}
+function delFile(pathEnc){
+  const path=decodeURIComponent(pathEnc);
+  const f=files.find(x=>x.path===path);
+  askConfirm('删除文件', `确定删除「${escapeHtml(f?f.name:'该文件')}」吗？删除后不可恢复。`, async()=>{
+    try{ await gh('DELETE', path, { message:'删除文件', sha:f.sha, branch:cfg.branch }); toast('已删除'); await loadFiles(); }
+    catch(e){ toast('删除失败：'+e.message, true); }
+  });
+}
+
+/* ================= 确认框 ================= */
+function askConfirm(title, body, action){
+  $('confirmTitle').textContent=title; $('confirmBody').innerHTML=body;
+  confirmAction=action; $('confirmModal').hidden=false;
+}
+$('btnConfirmYes').onclick = async ()=>{ const a=confirmAction; confirmAction=null; $('confirmModal').hidden=true; if(a) await a(); };
+
+/* ================= 事件绑定 ================= */
+$('btnConnect').onclick = ()=>{
+  cfg.owner=$('inOwner').value.trim(); cfg.repo=$('inRepo').value.trim(); cfg.token=$('inToken').value.trim();
+  if(!cfg.owner||!cfg.repo||!cfg.token){ $('setupErr').textContent='请填写用户名、仓库名和令牌'; return; }
+  connect(true);
+};
+$('inToken').addEventListener('keydown',e=>{ if(e.key==='Enter') $('btnConnect').click(); });
+
+document.querySelectorAll('.tab').forEach(t=> t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); t.classList.add('active');
+  const tab=t.dataset.tab;
+  $('notesPanel').hidden = tab!=='notes';
+  $('filesPanel').hidden = tab!=='files';
+});
+
+$('btnNewNote').onclick = ()=> openNote('');
+$('btnSaveNote').onclick = saveNote;
+$('noteSearch').addEventListener('input', renderNotes);
+$('fileSearch').addEventListener('input', renderFiles);
+
+$('btnUpload').onclick = ()=> $('fileInput').click();
+$('fileInput').onchange = e=>{ if(e.target.files.length){ uploadFiles(Array.from(e.target.files)); e.target.value=''; } };
+// 拖拽上传
+const drop=$('fileList');
+['dragenter','dragover'].forEach(ev=>document.addEventListener(ev,e=>{ e.preventDefault(); }));
+document.addEventListener('drop',e=>{
+  if($('filesPanel').hidden) return;
+  e.preventDefault();
+  if(e.dataTransfer && e.dataTransfer.files.length) uploadFiles(Array.from(e.dataTransfer.files));
+});
+
+$('btnSettings').onclick = ()=>{
+  $('setOwner').value=cfg.owner; $('setRepo').value=cfg.repo; $('setToken').value='';
+  $('settingsModal').hidden=false;
+};
+$('btnSaveSettings').onclick = ()=>{
+  cfg.owner=$('setOwner').value.trim()||cfg.owner;
+  cfg.repo=$('setRepo').value.trim()||cfg.repo;
+  const t=$('setToken').value.trim(); if(t) cfg.token=t;
+  saveCfg(); $('settingsModal').hidden=true; connect(false);
+};
+$('btnLogout').onclick = ()=>{
+  askConfirm('退出登录','退出后需要重新输入令牌才能访问，本机保存的连接信息会被清除。', async()=>{
+    localStorage.removeItem(LS_KEY);
+    cfg={owner:'',repo:'',token:'',branch:'main'};
+    notes=[]; files=[];
+    $('inOwner').value=''; $('inRepo').value=''; $('inToken').value='';
+    $('appView').hidden=true; $('setupView').hidden=false; $('setupErr').textContent='';
+    toast('已退出');
+  });
+  $('btnConfirmYes').textContent='退出';
+};
+
+document.querySelectorAll('[data-close]').forEach(b=> b.onclick=()=> $(b.dataset.close).hidden=true );
+document.querySelectorAll('.overlay').forEach(o=> o.addEventListener('click',e=>{ if(e.target===o) o.hidden=true; }));
+
+/* ================= 启动 ================= */
+loadCfg();
+if(cfg.owner && cfg.repo && cfg.token){ connect(false); }
+</script>
+</body>
+</html>
