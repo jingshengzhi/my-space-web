@@ -394,7 +394,7 @@ mark{background:#fff2a8;color:#3a2f00;border-radius:3px;padding:0 2px}
   <div class="modal sm">
     <div class="modal-head"><h2>上传文件</h2><button class="close-x" data-close="uploadModal">×</button></div>
     <div class="modal-body">
-      <div class="drop" id="dropZone">点击选择文件，或把文件拖到这里<div class="hint">单个文件不超过 10 MB</div></div>
+      <div class="drop" id="dropZone">点击选择文件，或把文件拖到这里<div class="hint">单个文件不超过 50 MB</div></div>
       <input type="file" id="fileInput" hidden multiple>
       <div class="progress" id="uploadProgress"><i></i></div>
       <div class="hint" id="uploadStatus" style="margin-top:10px"></div>
@@ -457,8 +457,29 @@ let confirmAction=null, noteSort='updated', activeTag='';
 let usernames='jingshengzhi';
 
 const $=id=>document.getElementById(id);
+const VERSION='v2.1';
 
 /* ================= 工具 ================= */
+/* 清洗输入：去掉全角空格、零宽字符等隐藏字符，避免接口报 non ISO-8859-1 错误 */
+function cleanToken(s){return String(s||'').replace(/[^A-Za-z0-9_.-]/g,'');}
+function cleanName(s){return String(s||'').replace(/[^A-Za-z0-9._-]/g,'').trim();}
+/* 带超时的 fetch：避免网络卡住时一直转圈 */
+async function fetchT(url,opt,ms){
+  const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),ms||40000);
+  try{return await fetch(url,Object.assign({},opt,{signal:ctl.signal}));}
+  catch(e){if(e.name==='AbortError')throw new Error('请求超时，请检查网络后重试');throw new Error('网络异常，请检查网络连接');}
+  finally{clearTimeout(timer);}
+}
+/* 把 GitHub 的错误翻译成看得懂的话 */
+function ghErr(res,data){
+  let m=(data&&data.message)||('请求失败 '+res.status);
+  if(res.status===401)m='令牌无效或已过期，请重新生成并填入令牌';
+  else if(res.status===403)m=(/rate limit/i.test(m)?'操作太快或请求次数超限，请稍后再试':'没有权限，请检查令牌是否勾选了仓库和内容读写');
+  else if(res.status===404)m='找不到仓库或文件，请检查仓库名';
+  else if(res.status===409)m='文件已被其他设备改动，请刷新后重试';
+  else if(res.status===422)m='内容格式有误或文件已存在，请换个名字重试';
+  const e=new Error(m);e.status=res.status;return e;
+}
 function toast(msg,isErr){const t=$('toast');t.textContent=msg;t.className='toast show'+(isErr?' err':'');clearTimeout(t._t);t._t=setTimeout(()=>t.className='toast',2600);}
 function utf8ToBase64(str){const b=new TextEncoder().encode(str);let bin='',c=0x8000;for(let i=0;i<b.length;i+=c)bin+=String.fromCharCode.apply(null,b.subarray(i,i+c));return btoa(bin);}
 function base64ToUtf8(b64){const bin=atob(b64.replace(/\n/g,''));return new TextDecoder().decode(Uint8Array.from(bin,c=>c.charCodeAt(0)));}
@@ -501,34 +522,75 @@ function fileIcon(name){const e=(name.split('.').pop()||'').toLowerCase();
   if(['txt','md','log','json'].includes(e))return '📄';return '📎';}
 
 /* ================= GitHub API ================= */
-async function gh(method,path,body){
+async function gh(method,path,body,timeout){
   const url=`https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}/contents/${encPath(path)}`+(method==='GET'?`?ref=${encodeURIComponent(cfg.branch)}`:'');
   const opt={method,headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}};
   if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
-  const res=await fetch(url,opt);let data=null;try{data=await res.json();}catch(e){}
-  if(!res.ok){const err=new Error(data&&data.message||('请求失败 '+res.status));err.status=res.status;throw err;}
+  const res=await fetchT(url,opt,timeout);let data=null;try{data=await res.json();}catch(e){}
+  if(!res.ok)throw ghErr(res,data);
   return data;
 }
-async function detectBranch(){const r=await fetch(`https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}`,{headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json'}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.message||'无法访问仓库，请检查用户名、仓库名和令牌');cfg.branch=d.default_branch||'main';}
+/* 读取大文件完整内容：contents 接口对 >1MB 文件不返回 content，改用 blob 接口 */
+async function ghBlob(sha){
+  const url=`https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}/git/blobs/${sha}`;
+  const r=await fetchT(url,{headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}},120000);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw ghErr(r,d);
+  return d.content||'';
+}
+/* 仓库级通用 API（路径从仓库根开始） */
+async function ghApi(method,path,body){
+  const url=`https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}${path}`;
+  const opt={method,headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const res=await fetchT(url,opt);let data=null;try{data=await res.json();}catch(e){}
+  if(!res.ok)throw ghErr(res,data);
+  return data;
+}
+/* 用 Git 底层接口移动文件：只改路径引用，不传内容，支持任意大小。
+   保留源文件权限；目标已存在同名文件时拒绝，避免覆盖。 */
+async function moveFileRaw(src,dest,blobSha,mode){
+  let exist=null;try{exist=await ghApi('GET',`/contents/${encPath(dest)}`);}catch(e){if(e.status!==404)throw e;}
+  if(exist&&!Array.isArray(exist))throw new Error('目标位置已有同名文件，未覆盖');
+  const ref=await ghApi('GET',`/branches/${encodeURIComponent(cfg.branch)}`);
+  const commitSha=ref.commit.sha;
+  const cm=await ghApi('GET',`/git/commits/${commitSha}`);
+  const tree=[{path:src,mode:'100644',type:'blob',sha:null},{path:dest,mode:mode||'100644',type:'blob',sha:blobSha}];
+  const nt=await ghApi('POST','/git/trees',{base_tree:cm.tree.sha,tree});
+  const nc=await ghApi('POST','/git/commits',{message:'移动文件',tree:nt.sha,parents:[commitSha]});
+  await ghApi('PATCH',`/git/refs/heads/${encodeURIComponent(cfg.branch)}`,{sha:nc.sha});
+}
+async function detectBranch(){
+  const r=await fetchT(`https://api.github.com/repos/${encPath(cfg.owner)}/${encPath(cfg.repo)}`,{headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json'}});
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw ghErr(r,d);
+  cfg.branch=d.default_branch||'main';
+}
 function saveCfg(){localStorage.setItem(LS_KEY,JSON.stringify(cfg));}
 function loadCfg(){try{const c=JSON.parse(localStorage.getItem(LS_KEY)||'null');if(c)cfg=Object.assign(cfg,c);}catch(e){}}
 function applyTheme(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem(THEME_KEY,t);document.querySelectorAll('[data-theme-set]').forEach(b=>b.classList.toggle('active',b.dataset.themeSet===t));}
 
 /* ================= 连接 ================= */
+/* 清洗配置输入并回写到输入框，去掉全角/零宽等隐藏字符 */
+async function cleanCfgInputs(){
+  const o=cleanName(cfg.owner),r=cleanName(cfg.repo),t=cleanToken(cfg.token);
+  if(o!==cfg.owner||r!==cfg.repo){cfg.owner=o;cfg.repo=r;$('inOwner').value=o;$('inRepo').value=r;$('setOwner').value=o;$('setRepo').value=r;}
+  if(t!==cfg.token){cfg.token=t;$('inToken').value=t;}
+}
 async function connect(showErr){
   $('setupErr').textContent='';const btn=$('btnConnect'),old=btn.textContent;btn.textContent='连接中…';btn.disabled=true;
   try{
+    await cleanCfgInputs();
     await detectBranch();
-    const r=await fetch('https://api.github.com/user',{headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json'}});
+    const r=await fetchT('https://api.github.com/user',{headers:{'Authorization':`Bearer ${cfg.token}`,'Accept':'application/vnd.github+json'}});
     const u=await r.json().catch(()=>({}));usernames=(r.ok&&u.login)?u.login:cfg.owner;
     saveCfg();
     $('setupView').hidden=true;$('appView').hidden=false;
     $('uname').textContent=usernames;$('avatar').textContent=(usernames[0]||'U').toUpperCase();
     $('setOwner').value=cfg.owner;$('setRepo').value=cfg.repo;$('setToken').value='';
-    await loadAll();toast('已连接');
+    await loadAll();toast('已连接 '+VERSION);
   }catch(e){
     if(showErr)$('setupErr').textContent='连接失败：'+e.message;else toast('连接失败：'+e.message,true);
-    if(e.status===401||e.status===403)$('setupView').hidden=false;
+    if(e.status===401){cfg.token='';saveCfg();$('inToken').value='';$('setupView').hidden=false;$('appView').hidden=true;}
   }finally{btn.textContent=old;btn.disabled=false;}
 }
 async function loadAll(){
@@ -543,7 +605,7 @@ async function loadNotes(){
     let items;try{items=await gh('GET','notes');}catch(e){if(e.status===404)items=[];else throw e;}
     const mds=(items||[]).filter(x=>x.type==='file'&&x.name.endsWith('.md')&&!x.name.startsWith('.'));
     notes=await Promise.all(mds.map(async x=>{
-      let body='';try{const f=await gh('GET',x.path);body=f.content?base64ToUtf8(f.content):'';}catch(e){}
+      let body='';try{const f=await gh('GET',x.path);const raw=f.content||(f.sha?await ghBlob(f.sha):'');body=raw?base64ToUtf8(raw):'';}catch(e){}
       let title=x.name.replace(/\.md$/,''),tg=[],pinned=false;
       const fm=body.match(/^<!--META([\s\S]*?)-->/);
       if(fm){try{const meta=JSON.parse(fm[1]);title=meta.title||title;tg=meta.tags||[];pinned=!!meta.pinned;body=body.replace(/^<!--META[\s\S]*?-->\n?/,'');}catch(e){}}
@@ -557,7 +619,7 @@ async function loadFiles(){
   try{
     let items;try{items=await gh('GET',path);}catch(e){if(e.status===404)items=[];else throw e;}
     folders=(items||[]).filter(x=>x.type==='dir').map(x=>({name:x.name,path:x.path}));
-    files=(items||[]).filter(x=>x.type==='file').map(x=>({name:x.name,path:x.path,sha:x.sha,size:x.size||0}));
+    files=(items||[]).filter(x=>x.type==='file'&&!x.name.startsWith('.')).map(x=>({name:x.name,path:x.path,sha:x.sha,size:x.size||0,mode:x.mode}));
     renderFiles();renderFolderBar();
   }catch(e){toast('文件加载失败：'+e.message,true);}
 }
@@ -739,23 +801,27 @@ $('view-files').addEventListener('drop',e=>{
   e.preventDefault();uploadFiles(Array.from(e.dataTransfer.files));
 });
 
+const MAX_UPLOAD=50*1024*1024;
 async function uploadFiles(list){
   const bar=$('uploadProgress'),fill=bar.querySelector('i');bar.style.display='block';
-  let ok=0;
+  const used=new Set(files.map(f=>f.name));let ok=0;
   for(let i=0;i<list.length;i++){
     const file=list[i];fill.style.width=(i/list.length*100)+'%';
-    $('fileInput');toast('上传中 '+file.name+'（'+(i+1)+'/'+list.length+'）');
-    if(file.size>10*1024*1024){toast(`「${file.name}」超过 10MB，已跳过`,true);continue;}
+    toast('上传中 '+file.name+'（'+(i+1)+'/'+list.length+'）');
+    if(file.size>MAX_UPLOAD){toast(`「${file.name}」超过 50MB，已跳过`,true);continue;}
     try{
       const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
       let name=file.name.replace(/[\\/]/g,'_');
       const base='files/'+(currentFolder?currentFolder+'/':'');
-      if(files.some(f=>f.name===name)){
-        const dot=name.lastIndexOf('.'),ts=Date.now();
-        name=dot>0?`${name.slice(0,dot)}_${ts}${name.slice(dot)}`:`${name}_${ts}`;
+      if(used.has(name)){
+        const dot=name.lastIndexOf('.'),ts=Date.now()+'_'+i;
+        const candidate=dot>0?`${name.slice(0,dot)}_${ts}${name.slice(dot)}`:`${name}_${ts}`;
+        name=candidate;let k=2;
+        while(used.has(name)){name=dot>0?`${name.slice(0,dot)}_${ts}_${k}${name.slice(name.lastIndexOf('.'))}`:`${candidate}_${k}`;k++;}
       }
-      await gh('PUT',base+name,{message:'上传文件 '+name,content:b64,branch:cfg.branch});ok++;
-    }catch(e){toast('上传「'+file.name+'」失败：'+e.message,true);}
+      used.add(name);
+      await gh('PUT',base+name,{message:'上传文件 '+name,content:b64,branch:cfg.branch},180000);ok++;
+    }catch(e){used.delete(file.name);toast('上传「'+file.name+'」失败：'+e.message,true);}
   }
   fill.style.width='100%';setTimeout(()=>bar.style.display='none',600);
   toast('上传完成 '+ok+' 个文件');await loadFiles();renderDash();renderNavCounts();
@@ -764,7 +830,7 @@ async function uploadFiles(list){
 async function dlFile(pathEnc){
   const path=decodeURIComponent(pathEnc),f=files.find(x=>x.path===path);if(!f)return;
   toast('下载中…');
-  try{const d=await gh('GET',path);const blob=base64ToBlob(d.content,d.type||'application/octet-stream');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=f.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
+  try{const d=await gh('GET',path);const content=d.content||await ghBlob(f.sha);const blob=base64ToBlob(content,d.type||'application/octet-stream');const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=f.name;a.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
   catch(e){toast('下载失败：'+e.message,true);}
 }
 
@@ -775,15 +841,15 @@ async function previewFile(pathEnc){
   $('previewBody').innerHTML='<div class="empty-mini">加载中…</div>';$('previewModal').hidden=false;
   try{
     const e=(f.name.split('.').pop()||'').toLowerCase();
-    const d=await gh('GET',path);
+    const d=await gh('GET',path);const content=d.content||await ghBlob(f.sha);
     if(['png','jpg','jpeg','gif','webp','bmp','svg'].includes(e)){
-      const url=URL.createObjectURL(base64ToBlob(d.content,d.type||'image/'+e));
+      const url=URL.createObjectURL(base64ToBlob(content,d.type||'image/'+e));
       $('previewBody').innerHTML=`<img src="${url}">`;
     }else if(e==='pdf'){
-      const url=URL.createObjectURL(base64ToBlob(d.content,'application/pdf'));
+      const url=URL.createObjectURL(base64ToBlob(content,'application/pdf'));
       $('previewBody').innerHTML=`<iframe src="${url}#toolbar=1"></iframe>`;
     }else{
-      $('previewBody').innerHTML='<pre>'+escapeHtml(base64ToUtf8(d.content))+'</pre>';
+      $('previewBody').innerHTML='<pre>'+escapeHtml(base64ToUtf8(content))+'</pre>';
     }
   }catch(err){$('previewBody').innerHTML='<div class="empty-mini">预览失败：'+escapeHtml(err.message)+'</div>';}
 }
@@ -808,21 +874,27 @@ $('btnCreateFolder').onclick=async()=>{
   catch(e){toast('创建失败：'+e.message,true);}
 };
 
-/* 移动文件（简化：输入目标文件夹路径） */
+/* 移动文件：可选现有文件夹或输入新文件夹名 */
 function moveFile(pathEnc){
   const path=decodeURIComponent(pathEnc),f=files.find(x=>x.path===path);if(!f)return;
+  const dirs=folders.map(x=>x.path.replace(/^files\//,'')).filter(Boolean);
+  const cur=currentFolder;
+  const opts=dirs.map(d=>`<option value="${escapeHtml(d)}">`).join('');
   $('confirmTitle').textContent='移动文件';
-  $('confirmBody').innerHTML=`把「${escapeHtml(f.name)}」移动到文件夹：<br><br><input class="search-input" id="moveTarget" placeholder="留空表示根目录，例如：工作资料" value="${escapeHtml(currentFolder)}">`;
+  $('confirmBody').innerHTML=`把「${escapeHtml(f.name)}」移动到：<br><br>
+    <input class="search-input" id="moveTarget" list="folderOptions" placeholder="选择文件夹，或输入新名称；留空为根目录" value="${escapeHtml(cur)}">
+    <datalist id="folderOptions">${opts}</datalist>`;
   confirmAction=async()=>{
-    const dest=($('moveTarget').value||'').trim().replace(/^\/+|\/+$/g,'');
+    const btn=$('btnConfirmYes');
+    const dest=($('moveTarget').value||'').trim().replace(/^\/+|\/+$/g,'').replace(/\\/g,'/');
     const newPath='files/'+(dest?dest+'/':'')+f.name;
     if(newPath===f.path){toast('目标位置未变化');return;}
+    btn.disabled=true;btn.textContent='移动中…';
     try{
-      const b=await gh('GET',f.path);
-      await gh('PUT',newPath,{message:'移动文件 '+f.name,content:b.content,branch:cfg.branch});
-      await gh('DELETE',f.path,{message:'移动文件（删除源）',sha:f.sha,branch:cfg.branch});
-      toast('已移动');await loadFiles();
+      await moveFileRaw(f.path,newPath,f.sha,f.mode);
+      toast('已移动');await loadFiles();renderDash();renderNavCounts();
     }catch(e){toast('移动失败：'+e.message,true);}
+    finally{btn.disabled=false;btn.textContent='移动';}
   };
   $('btnConfirmYes').textContent='移动';$('confirmModal').hidden=false;
 }
@@ -853,8 +925,8 @@ $('btnConfirmYes').onclick=async()=>{const a=confirmAction;confirmAction=null;$(
 /* ================= 设置/退出/主题 ================= */
 $('btnSettings').onclick=()=>{$('setOwner').value=cfg.owner;$('setRepo').value=cfg.repo;$('setToken').value='';$('settingsModal').hidden=false;};
 $('btnSaveSettings').onclick=()=>{
-  cfg.owner=$('setOwner').value.trim()||cfg.owner;cfg.repo=$('setRepo').value.trim()||cfg.repo;
-  const t=$('setToken').value.trim();if(t)cfg.token=t;
+  cfg.owner=cleanName($('setOwner').value)||cfg.owner;cfg.repo=cleanName($('setRepo').value)||cfg.repo;
+  const t=cleanToken($('setToken').value);if(t)cfg.token=t;
   saveCfg();$('settingsModal').hidden=true;connect(false);
 };
 $('btnLogout').onclick=()=>{
@@ -869,8 +941,9 @@ document.querySelectorAll('[data-theme-set]').forEach(b=>b.onclick=()=>applyThem
 
 /* ================= 通用事件 ================= */
 $('btnConnect').onclick=()=>{
-  cfg.owner=$('inOwner').value.trim();cfg.repo=$('inRepo').value.trim();cfg.token=$('inToken').value.trim();
-  if(!cfg.owner||!cfg.repo||!cfg.token){$('setupErr').textContent='请填写用户名、仓库名和令牌';return;}
+  cfg.owner=cleanName($('inOwner').value);cfg.repo=cleanName($('inRepo').value);cfg.token=cleanToken($('inToken').value);
+  $('inOwner').value=cfg.owner;$('inRepo').value=cfg.repo;$('inToken').value=cfg.token;
+  if(!cfg.owner||!cfg.repo||!cfg.token){$('setupErr').textContent='请填写用户名、仓库名和令牌（令牌应为 github_pat_ 开头的英文字符）';return;}
   connect(true);
 };
 $('inToken').addEventListener('keydown',e=>{if(e.key==='Enter')$('btnConnect').click();});
